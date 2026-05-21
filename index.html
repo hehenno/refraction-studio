@@ -1252,12 +1252,40 @@ let capFrames = [];
 let capCanvas = null, capCtx = null;
 let capTimer = null;
 
+/* gif.js needs a Worker, and loading a Worker directly from a cross-origin
+   URL is blocked by most browsers (including Safari). The workaround is to
+   fetch the worker script as text and wrap it in a same-origin Blob URL. */
+let gifWorkerBlobUrl = null;
+
 function ensureGifLib(cb){
-  if(window.GIF){ cb(); return; }
+  const done = () => {
+    if(gifWorkerBlobUrl) return cb();
+    /* fetch the worker script and turn it into a same-origin blob URL */
+    fetch('https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js')
+      .then(r => {
+        if(!r.ok) throw new Error('worker fetch failed: ' + r.status);
+        return r.text();
+      })
+      .then(src => {
+        gifWorkerBlobUrl = URL.createObjectURL(
+          new Blob([src], {type: 'application/javascript'})
+        );
+        cb();
+      })
+      .catch(err => {
+        console.error('gif.js worker load failed:', err);
+        toast('GIF encoder failed to load');
+        cancelCapture($('rec'));
+      });
+  };
+  if(window.GIF){ done(); return; }
   const s = document.createElement('script');
   s.src = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js';
-  s.onload = cb;
-  s.onerror = () => toast('Could not load GIF encoder');
+  s.onload = done;
+  s.onerror = () => {
+    toast('Could not load GIF encoder');
+    cancelCapture($('rec'));
+  };
   document.head.appendChild(s);
 }
 
@@ -1307,20 +1335,38 @@ function encodeGif(btn){
   recState = 'encoding';
   btn.textContent = 'Encoding 0%';
   ensureGifLib(() => {
+    if(!gifWorkerBlobUrl){
+      /* ensureGifLib already toasted + cancelled, just bail */
+      return;
+    }
+    let lastProgress = -1;
+    let stallTimer = null;
+    const resetStallTimer = () => {
+      if(stallTimer) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        console.error('gif.js encoding stalled');
+        toast('Encoding stalled — try a shorter recording');
+        cancelCapture(btn);
+      }, 15000);   // if no progress event for 15s, assume dead
+    };
+
     const gif = new GIF({
       workers: 2,
       quality: 10,
       width: capCanvas.width,
       height: capCanvas.height,
-      workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js',
+      workerScript: gifWorkerBlobUrl,
     });
     for(const f of capFrames){
       gif.addFrame(f, {delay: 1000 / REC_FPS});
     }
     gif.on('progress', p => {
+      lastProgress = p;
       btn.textContent = `Encoding ${Math.round(p * 100)}%`;
+      resetStallTimer();
     });
     gif.on('finished', blob => {
+      if(stallTimer) clearTimeout(stallTimer);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1340,7 +1386,22 @@ function encodeGif(btn){
       btn.classList.remove('active');
       btn.textContent = 'Record GIF';
     });
-    gif.render();
+    gif.on('abort', () => {
+      if(stallTimer) clearTimeout(stallTimer);
+      console.error('gif.js aborted');
+      toast('Encoding aborted');
+      cancelCapture(btn);
+    });
+
+    resetStallTimer();
+    try {
+      gif.render();
+    } catch(err) {
+      if(stallTimer) clearTimeout(stallTimer);
+      console.error('gif.render() threw:', err);
+      toast('Encoder error — see console');
+      cancelCapture(btn);
+    }
   });
 }
 
