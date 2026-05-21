@@ -168,6 +168,24 @@
     width:16px;height:16px;border-radius:50%;background:var(--ink);border:0;
   }
 
+  .colorRow{display:flex;gap:12px;align-items:stretch;}
+  .colorSwatch{
+    width:44px;flex:0 0 44px;border-radius:6px;border:1px solid var(--line);
+    background:#fff;cursor:pointer;transition:border-color .15s;
+  }
+  .colorSwatch:active{border-color:var(--hot);}
+  .colorSliders{flex:1;}
+  /* tint each color slider's label and track */
+  .rLabel{color:#ff5a5a !important;}
+  .gLabel{color:#5aff8a !important;}
+  .bLabel{color:#5a9aff !important;}
+  input.rSlider::-webkit-slider-runnable-track{background:linear-gradient(to right, #2a0808, #ff5a5a);}
+  input.gSlider::-webkit-slider-runnable-track{background:linear-gradient(to right, #082a10, #5aff8a);}
+  input.bSlider::-webkit-slider-runnable-track{background:linear-gradient(to right, #08142a, #5a9aff);}
+  input.rSlider::-moz-range-track{background:linear-gradient(to right, #2a0808, #ff5a5a);}
+  input.gSlider::-moz-range-track{background:linear-gradient(to right, #082a10, #5aff8a);}
+  input.bSlider::-moz-range-track{background:linear-gradient(to right, #08142a, #5a9aff);}
+
   .actions{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;width:100%;}
   .actions button{
     background:#000;color:var(--ink);border:1px solid var(--line);
@@ -309,12 +327,30 @@
         </button>
       </div>
     </div>
+
+    <div class="row colorRow">
+      <div class="colorSwatch" id="colorSwatch" title="Reset to white"></div>
+      <div class="sliders colorSliders">
+        <div class="slider">
+          <div class="head"><span class="rLabel">Red</span><b id="vColorR">255</b></div>
+          <input type="range" id="colorR" class="rSlider" min="0" max="255" step="1" value="255">
+        </div>
+        <div class="slider">
+          <div class="head"><span class="gLabel">Green</span><b id="vColorG">255</b></div>
+          <input type="range" id="colorG" class="gSlider" min="0" max="255" step="1" value="255">
+        </div>
+        <div class="slider">
+          <div class="head"><span class="bLabel">Blue</span><b id="vColorB">255</b></div>
+          <input type="range" id="colorB" class="bSlider" min="0" max="255" step="1" value="255">
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="row">
     <div class="actions">
       <button id="snap">Snapshot PNG</button>
-      <button id="rec" class="rec">Record WEBM</button>
+      <button id="rec" class="rec">Record GIF</button>
       <button id="invert" class="primary">Invert</button>
     </div>
   </div>
@@ -360,6 +396,7 @@ uniform float u_grain;
 uniform float u_glow;
 uniform vec2  u_texRegion;
 uniform float u_seed;
+uniform vec3  u_color;
 uniform int   u_geo;
 
 const float PI = 3.14159265;
@@ -394,18 +431,103 @@ vec2 geoNormal(vec2 uv, float t){
   p = R * p;
 
   if(u_geo == 0){
-    /* RANDOM PATTERN — picks one of several mathematical/geometric
-       generators based on the seed. Each tap of Random re-rolls and lands
-       on a new algorithm: voronoi, ripples, lens grid, spiral, moire... */
-    int variant = int(mod(u_seed, 8.0));
-    /* a second seed-derived value for per-variant parameter variation */
-    float v = fract(u_seed * 0.61803);   // 0..1
+    /* RANDOM PATTERN — picks one of 12 geometric/mathematical generators
+       based on the seed. Each tap of Random advances to the next variant
+       AND shifts the per-variant parameters via 'v'. */
+    int variant = int(mod(u_seed, 12.0));
+    float v = fract(u_seed * 0.61803);   // 0..1, secondary parameter
     float s = u_density * 0.5;
     vec2 q = p * s;
 
     if(variant == 0){
-      /* VORONOI — cracked/hammered glass. Normal points toward the
-         nearest random feature point. */
+      /* DIAGONAL LINES — parallel stripes at a seed-rotated angle.
+         Each line is a smooth bell (same profile as fluted, just rotated). */
+      float ang = v * 3.14159;            // angle 0..π
+      vec2 dir = vec2(cos(ang), sin(ang));
+      float coord = dot(p, dir) * u_density * 0.8 + t * 0.05;
+      float fc = fract(coord) - 0.5;
+      float n = sin(fc * PI) * 1.4;
+      /* normal points perpendicular to the line direction */
+      vec2 perp = vec2(-dir.y, dir.x);
+      return Ri * (perp * n);
+    }
+    else if(variant == 1){
+      /* ZIGZAG HORIZONTAL — sharp triangle-wave bands running across.
+         The X coord gets bent by a triangle wave in Y, then we band in Y. */
+      float zfreq = 1.5 + v * 2.5;        // how zigzaggy per row
+      float tri = abs(fract(p.y * zfreq) - 0.5) - 0.25;  // triangle wave in Y
+      float coord = (p.x + tri * 0.8) * u_density * 0.6 + t * 0.05;
+      float fc = fract(coord) - 0.5;
+      float n = sin(fc * PI) * 1.3;
+      return Ri * vec2(n, 0.0);
+    }
+    else if(variant == 2){
+      /* ZIGZAG VERTICAL — same trick, rotated 90° */
+      float zfreq = 1.5 + v * 2.5;
+      float tri = abs(fract(p.x * zfreq) - 0.5) - 0.25;
+      float coord = (p.y + tri * 0.8) * u_density * 0.6 + t * 0.05;
+      float fc = fract(coord) - 0.5;
+      float n = sin(fc * PI) * 1.3;
+      return Ri * vec2(0.0, n);
+    }
+    else if(variant == 3){
+      /* WAVY LONG LINES — long flowing horizontal sine ripples.
+         Each line has a phase that varies along X so they ripple. */
+      float k = u_density * 0.4;
+      float phase = p.x * k * 0.3 + t * 0.2;
+      /* the line position in Y wobbles with sin(phase) */
+      float yarg = (p.y + sin(phase) * 0.15) * u_density * 0.7 + t * 0.05;
+      float fc = fract(yarg) - 0.5;
+      float n = sin(fc * PI) * 1.3;
+      return Ri * vec2(0.0, n);
+    }
+    else if(variant == 4){
+      /* DOT GRID — square grid of round bump lenses. Each cell has a
+         circular dome that bulges out, refracting light radially. */
+      vec2 cell = fract(q) - 0.5;
+      float d = length(cell);
+      float radius = 0.42;
+      if(d < radius){
+        vec2 n = cell / max(d, 0.001);
+        /* smooth bell profile inside each dot */
+        float profile = sin((d / radius) * PI);
+        return Ri * (n * profile * 1.6);
+      }
+      return vec2(0.0);
+    }
+    else if(variant == 5){
+      /* HEX LENS LATTICE — smooth lens domes on hex packing */
+      vec2 hexR = vec2(1.0, 1.7320508);
+      vec2 a = mod(q, hexR) - hexR * 0.5;
+      vec2 b = mod(q + hexR * 0.5, hexR) - hexR * 0.5;
+      vec2 cell = (dot(a, a) < dot(b, b)) ? a : b;
+      float d = length(cell);
+      vec2 n = (d > 0.001) ? cell / d : vec2(0.0);
+      float profile = sin(d * 3.6);
+      return Ri * (n * profile * 1.1);
+    }
+    else if(variant == 6){
+      /* TRIANGULAR LATTICE — equilateral triangle cells */
+      vec2 tri = q * vec2(1.0, 0.866);
+      tri.x += mod(floor(tri.y), 2.0) * 0.5;
+      vec2 fp = fract(tri) - 0.5;
+      float d = length(fp);
+      vec2 n = (d > 0.001) ? fp / d : vec2(0.0);
+      return Ri * (n * smoothstep(0.0, 0.5, d) * 1.3);
+    }
+    else if(variant == 7){
+      /* CHECKER TILES — alternating raised/lowered square tiles.
+         Each tile is a smooth dome whose sign alternates by checker pattern. */
+      vec2 ip = floor(q);
+      vec2 cell = fract(q) - 0.5;
+      float sign = mod(ip.x + ip.y, 2.0) * 2.0 - 1.0;   // ±1
+      float d = length(cell);
+      vec2 n = (d > 0.001) ? cell / d : vec2(0.0);
+      float profile = sin(d * 4.2);
+      return Ri * (n * profile * sign * 0.9);
+    }
+    else if(variant == 8){
+      /* VORONOI — cracked/hammered glass with seeded cell positions */
       vec2 ip = floor(q), fp = fract(q);
       vec2 best = vec2(0.0);
       float bestD = 8.0;
@@ -423,43 +545,8 @@ vec2 geoNormal(vec2 uv, float t){
       vec2 n = (len > 0.001) ? best / len : vec2(0.0);
       return Ri * (-n * smoothstep(0.0, 0.6, len) * 1.3);
     }
-    else if(variant == 1){
-      /* CONCENTRIC RIPPLES — one droplet in the surface */
-      vec2 c = vec2((v - 0.5) * 1.5, (fract(u_seed * 0.37) - 0.5) * 1.0);
-      vec2 r = q * 0.4 - c;
-      float d = length(r);
-      vec2 dir = (d > 0.001) ? r / d : vec2(0.0);
-      return Ri * (dir * cos(d * 3.0 - t * 0.5) * 1.2);
-    }
-    else if(variant == 2){
-      /* MULTI-DROPLET — three ripple centers summed */
-      vec2 grad = vec2(0.0);
-      for(int i=0; i<3; i++){
-        float fi = float(i);
-        vec2 c = vec2(hash(vec2(u_seed + fi, 7.1)) - 0.5,
-                      hash(vec2(u_seed + fi, 13.3)) - 0.5) * 3.0;
-        vec2 r = q * 0.35 - c;
-        float d = length(r);
-        vec2 dir = (d > 0.001) ? r / d : vec2(0.0);
-        grad += dir * cos(d * 2.5 - t * 0.4 - fi * 1.7);
-      }
-      return Ri * (grad * 0.5);
-    }
-    else if(variant == 3){
-      /* HEX LENS LATTICE — grid of smooth lens domes on a hex packing */
-      vec2 hexR = vec2(1.0, 1.7320508);
-      vec2 a = mod(q, hexR) - hexR * 0.5;
-      vec2 b = mod(q + hexR * 0.5, hexR) - hexR * 0.5;
-      vec2 cell = (dot(a, a) < dot(b, b)) ? a : b;
-      float d = length(cell);
-      vec2 n = (d > 0.001) ? cell / d : vec2(0.0);
-      /* smooth lens profile: zero at center, peaks mid-cell, falls at edge */
-      float profile = sin(d * 3.6);
-      return Ri * (n * profile * 1.1);
-    }
-    else if(variant == 4){
-      /* CROSSED STRIPES (moire) — two sets at different angles, summed.
-         Normal = -gradient of summed height field. */
+    else if(variant == 9){
+      /* CROSSED STRIPES (moire) — two stripe sets at different angles */
       float a1 = v * 3.14159;
       float a2 = a1 + 0.7 + fract(u_seed * 0.91) * 1.2;
       vec2 d1 = vec2(cos(a1), sin(a1));
@@ -469,40 +556,31 @@ vec2 geoNormal(vec2 uv, float t){
       vec2 g2 = -d2 * cos(dot(p, d2) * k - t * 0.15) * k;
       return Ri * ((g1 + g2) * 0.04);
     }
-    else if(variant == 5){
-      /* SPIRAL — concentric rings with angular phase */
+    else if(variant == 10){
+      /* SPIRAL — concentric rings with angular phase, 2–6 arms */
       float r = length(q) * 0.5;
       float ang = atan(q.y, q.x);
       float arms = floor(v * 5.0) + 2.0;
       float phase = r * 2.5 + ang * arms - t * 0.4;
-      /* radial + tangential components of the gradient */
       vec2 rdir = (length(q) > 0.001) ? q / length(q) : vec2(1.0, 0.0);
       vec2 tdir = vec2(-rdir.y, rdir.x);
       float ch = cos(phase);
       return Ri * ((rdir * ch * 2.5 + tdir * ch * arms * 1.2) * 0.18);
     }
-    else if(variant == 6){
-      /* RADIAL SPOKES — angular wedges like a star burst */
+    else {
+      /* RADIAL SPOKES — angular star burst, 6–15 spokes */
       float ang = atan(q.y, q.x);
       float spokes = floor(v * 10.0) + 6.0;
       float r = length(q);
-      /* gradient: angular component dominates */
       vec2 tdir = (r > 0.001) ? vec2(-q.y, q.x) / r : vec2(0.0);
       return Ri * (tdir * cos(ang * spokes + t * 0.3) * spokes * 0.12);
     }
-    else {
-      /* TRIANGULAR LATTICE — equilateral triangle cells */
-      vec2 tri = q * vec2(1.0, 0.866);
-      tri.x += mod(floor(tri.y), 2.0) * 0.5;
-      vec2 fp = fract(tri) - 0.5;
-      float d = length(fp);
-      vec2 n = (d > 0.001) ? fp / d : vec2(0.0);
-      return Ri * (n * smoothstep(0.0, 0.5, d) * 1.3);
-    }
   }
   else if(u_geo == 1){
-    /* VERTICAL STRIPES — sawtooth in X, each stripe is a half-cylinder */
-    float x = (p.x + t*0.05) * u_density;
+    /* VERTICAL STRIPES — sawtooth in X, each stripe is a half-cylinder.
+       Sawtooth profile makes any drift read as fast scrolling, so we damp
+       the time term (0.012 vs the usual 0.05) for a calmer baseline. */
+    float x = (p.x + t*0.012) * u_density;
     float fx = fract(x) - 0.5;          // -0.5..0.5 across each stripe
     /* slope of half-cylinder cross section: derivative of sqrt(1-(2fx)^2) ~ -fx/sqrt */
     float k = 1.0 - 4.0*fx*fx;
@@ -543,7 +621,10 @@ vec3 sampleTex(vec2 uv){
   tuv = (tuv - 0.5) * u_texRegion + 0.5;
   /* clamp to avoid wrap artifacts at edges */
   tuv = clamp(tuv, vec2(0.001), vec2(0.999));
-  return texture2D(u_tex, tuv).rgb;
+  /* the texture is white text on black, so we use it as a luminance mask
+     and multiply by the user-selected color. */
+  vec3 mask = texture2D(u_tex, tuv).rgb;
+  return mask * u_color;
 }
 
 /* Mip-biased sampler for the glow — reads from a coarser mip level so each
@@ -553,7 +634,8 @@ vec3 sampleTexSoft(vec2 uv, float bias){
   vec2 tuv = (uv - 0.5) / u_zoom + 0.5 + u_pan;
   tuv = (tuv - 0.5) * u_texRegion + 0.5;
   tuv = clamp(tuv, vec2(0.001), vec2(0.999));
-  return texture2D(u_tex, tuv, bias).rgb;
+  vec3 mask = texture2D(u_tex, tuv, bias).rgb;
+  return mask * u_color;
 }
 
 /* simple pseudo-random for grain — animates with time for film flicker */
@@ -577,36 +659,54 @@ void main(){
   col.g = sampleTex(uv + N * (ior)).g;
   col.b = sampleTex(uv + N * (ior * (1.0 - ca))).b;
 
-  /* GLOW — 24-tap multi-ring sample of the SOURCE text creates a soft halo
-     around the actual letterforms. Three rings with gaussian-style falloff
-     weights for a creamy bloom rather than a hard ring. */
+  /* GLOW — two-stage halo. Tight inner halo for the visible edge lift,
+     plus a wider, very dim outer glow for atmospheric falloff. */
   if(u_glow > 0.5){
+    /* ---- INNER halo: tight close-to-letters ---- */
     vec3 halo = vec3(0.0);
     float wsum = 0.0;
     /* ring 1: tight, full weight */
     for(int i=0; i<8; i++){
       float a = 6.2831853 * float(i) / 8.0;
-      vec2 off = vec2(cos(a), sin(a)) * 0.010;
+      vec2 off = vec2(cos(a), sin(a)) * 0.0035;
       halo += sampleTex(uv + N * ior + off) * 1.0;
       wsum += 1.0;
     }
     /* ring 2: medium, half weight */
     for(int i=0; i<8; i++){
-      float a = 6.2831853 * float(i) / 8.0 + 0.39;  // offset so rings don't align
-      vec2 off = vec2(cos(a), sin(a)) * 0.025;
+      float a = 6.2831853 * float(i) / 8.0 + 0.39;
+      vec2 off = vec2(cos(a), sin(a)) * 0.0085;
       halo += sampleTex(uv + N * ior + off) * 0.55;
       wsum += 0.55;
     }
     /* ring 3: wide, light weight for soft outer falloff */
     for(int i=0; i<8; i++){
       float a = 6.2831853 * float(i) / 8.0 + 0.78;
-      vec2 off = vec2(cos(a), sin(a)) * 0.055;
+      vec2 off = vec2(cos(a), sin(a)) * 0.018;
       halo += sampleTex(uv + N * ior + off) * 0.22;
       wsum += 0.22;
     }
     halo /= wsum;
-    /* additive blend at full strength — falloff comes from the weights above */
-    col += halo * 1.1;
+    col += halo * 0.45;
+
+    /* ---- OUTER halo: wider, very dim atmospheric glow ---- */
+    vec3 halo2 = vec3(0.0);
+    float wsum2 = 0.0;
+    /* 16-tap fibonacci spiral with mip-biased samples for true softness.
+       Radius ~3× the inner halo, intensity ~8× lower → ghost-faint aura. */
+    const float GOLDEN = 2.39996323;
+    for(int i=0; i<16; i++){
+      float t01 = (float(i) + 0.5) / 16.0;
+      float r01 = sqrt(t01);
+      float r = r01 * 0.060;                       // outer reach
+      float a = float(i) * GOLDEN;
+      vec2 off = vec2(cos(a), sin(a)) * r;
+      float w = exp(-(r01*r01) / (2.0 * 0.5 * 0.5));
+      halo2 += sampleTexSoft(uv + N * ior + off, 3.5) * w;
+      wsum2 += w;
+    }
+    halo2 /= wsum2;
+    col += halo2 * 0.18;
   }
 
   /* invert toggle (black text on white bg vs white on black) */
@@ -663,6 +763,7 @@ const U = {
   glow:     gl.getUniformLocation(prog,'u_glow'),
   texRegion:gl.getUniformLocation(prog,'u_texRegion'),
   seed:     gl.getUniformLocation(prog,'u_seed'),
+  color:    gl.getUniformLocation(prog,'u_color'),
   geo:      gl.getUniformLocation(prog,'u_geo'),
 };
 
@@ -766,7 +867,10 @@ const state = {
   grain: 0,
   glow: 0,
   invert: 0,
-  seed: Math.floor(Math.random() * 8),
+  seed: Math.floor(Math.random() * 12),
+  colorR: 1.0,
+  colorG: 1.0,
+  colorB: 1.0,
 };
 
 const $ = id => document.getElementById(id);
@@ -819,6 +923,39 @@ bindSlider('density','density',1, v=>v.toFixed(0));
 bindSlider('ior','ior',0.01, v=>v.toFixed(2));
 bindSlider('speed','speed',0.01, v=>v.toFixed(2));
 bindSlider('chroma','chroma',0.01, v=>v.toFixed(2));
+
+/* RGB color sliders — 0..255 in UI, 0..1 in state */
+const swatch = $('colorSwatch');
+function updateSwatch(){
+  const r = Math.round(state.colorR * 255);
+  const g = Math.round(state.colorG * 255);
+  const b = Math.round(state.colorB * 255);
+  swatch.style.background = `rgb(${r},${g},${b})`;
+}
+function bindColor(id, key){
+  const el = $(id), out = $('v' + id[0].toUpperCase() + id.slice(1));
+  const update = () => {
+    const v = parseInt(el.value, 10);
+    state[key] = v / 255;
+    out.textContent = v;
+    updateSwatch();
+  };
+  el.addEventListener('input', update);
+  update();
+}
+bindColor('colorR','colorR');
+bindColor('colorG','colorG');
+bindColor('colorB','colorB');
+
+/* tap swatch to reset to white */
+swatch.addEventListener('click', () => {
+  $('colorR').value = 255; $('colorG').value = 255; $('colorB').value = 255;
+  state.colorR = 1; state.colorG = 1; state.colorB = 1;
+  $('vColorR').textContent = 255;
+  $('vColorG').textContent = 255;
+  $('vColorB').textContent = 255;
+  updateSwatch();
+});
 
 /* LOOK tab toggles */
 document.querySelectorAll('.toggle').forEach(btn => {
@@ -1069,6 +1206,7 @@ function frame(now){
   gl.uniform1f(U.glow, state.glow);
   gl.uniform2f(U.texRegion, texRegion[0], texRegion[1]);
   gl.uniform1f(U.seed, state.seed);
+  gl.uniform3f(U.color, state.colorR, state.colorG, state.colorB);
   gl.uniform1i(U.geo, state.geo);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -1100,41 +1238,120 @@ $('snap').addEventListener('click', () => {
   }, 'image/png');
 });
 
-let recorder = null, recChunks = [];
+/* ---------- GIF Recorder ----------
+   Captures ~3 seconds at 20 fps, downsampled to a target max dimension for
+   reasonable file size. Uses gif.js (loaded from CDN) to encode in a Worker
+   so the UI doesn't freeze. */
+const REC_FPS = 20;
+const REC_SECONDS = 3;
+const REC_MAX_DIM = 480;           // longest side of output gif
+const REC_FRAMES = REC_FPS * REC_SECONDS;
+
+let recState = 'idle';             // 'idle' | 'capturing' | 'encoding'
+let capFrames = [];
+let capCanvas = null, capCtx = null;
+let capTimer = null;
+
+function ensureGifLib(cb){
+  if(window.GIF){ cb(); return; }
+  const s = document.createElement('script');
+  s.src = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js';
+  s.onload = cb;
+  s.onerror = () => toast('Could not load GIF encoder');
+  document.head.appendChild(s);
+}
+
+function startGifCapture(btn){
+  /* compute target size, preserving aspect, longest side = REC_MAX_DIM */
+  const cw = canvas.width, ch = canvas.height;
+  const scale = Math.min(1, REC_MAX_DIM / Math.max(cw, ch));
+  const tw = Math.max(2, Math.round(cw * scale));
+  const th = Math.max(2, Math.round(ch * scale));
+  capCanvas = document.createElement('canvas');
+  capCanvas.width = tw; capCanvas.height = th;
+  capCtx = capCanvas.getContext('2d');
+
+  capFrames = [];
+  recState = 'capturing';
+  btn.classList.add('active');
+  btn.textContent = 'Cancel';
+
+  let frameIdx = 0;
+  const interval = 1000 / REC_FPS;
+
+  capTimer = setInterval(() => {
+    if(recState !== 'capturing') return;
+    /* draw the live WebGL canvas into the smaller capture canvas */
+    capCtx.drawImage(canvas, 0, 0, tw, th);
+    /* snapshot pixel data — must clone since gif.js holds the reference */
+    const imgData = capCtx.getImageData(0, 0, tw, th);
+    capFrames.push(imgData);
+    frameIdx++;
+    btn.textContent = `Rec ${frameIdx}/${REC_FRAMES}`;
+    if(frameIdx >= REC_FRAMES){
+      clearInterval(capTimer); capTimer = null;
+      encodeGif(btn);
+    }
+  }, interval);
+}
+
+function cancelCapture(btn){
+  if(capTimer){ clearInterval(capTimer); capTimer = null; }
+  capFrames = [];
+  recState = 'idle';
+  btn.classList.remove('active');
+  btn.textContent = 'Record GIF';
+}
+
+function encodeGif(btn){
+  recState = 'encoding';
+  btn.textContent = 'Encoding 0%';
+  ensureGifLib(() => {
+    const gif = new GIF({
+      workers: 2,
+      quality: 10,
+      width: capCanvas.width,
+      height: capCanvas.height,
+      workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js',
+    });
+    for(const f of capFrames){
+      gif.addFrame(f, {delay: 1000 / REC_FPS});
+    }
+    gif.on('progress', p => {
+      btn.textContent = `Encoding ${Math.round(p * 100)}%`;
+    });
+    gif.on('finished', blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `refraction_${Date.now()}.gif`;
+      /* On iOS, programmatic click on a download link opens the file in a
+         preview where the user can long-press to save to Photos. */
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+      const kb = Math.round(blob.size / 1024);
+      toast(`GIF saved (${kb} KB)`);
+
+      capFrames = [];
+      recState = 'idle';
+      btn.classList.remove('active');
+      btn.textContent = 'Record GIF';
+    });
+    gif.render();
+  });
+}
+
 $('rec').addEventListener('click', e => {
   const btn = e.currentTarget;
-  if(recorder && recorder.state === 'recording'){
-    recorder.stop();
-    return;
+  if(recState === 'idle'){
+    startGifCapture(btn);
+  } else if(recState === 'capturing'){
+    cancelCapture(btn);
   }
-  if(!canvas.captureStream){
-    toast('Recording unsupported here'); return;
-  }
-  const stream = canvas.captureStream(60);
-  let mime = 'video/webm;codecs=vp9';
-  if(!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm;codecs=vp8';
-  if(!MediaRecorder.isTypeSupported(mime)) mime = 'video/webm';
-  if(!MediaRecorder.isTypeSupported(mime)){
-    toast('WEBM unsupported (try Chrome)'); return;
-  }
-  recChunks = [];
-  recorder = new MediaRecorder(stream, {mimeType: mime, videoBitsPerSecond: 8_000_000});
-  recorder.ondataavailable = ev => { if(ev.data.size) recChunks.push(ev.data); };
-  recorder.onstop = () => {
-    const blob = new Blob(recChunks, {type:'video/webm'});
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `refraction_${Date.now()}.webm`;
-    a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
-    btn.classList.remove('active');
-    btn.textContent = 'Record WEBM';
-    toast('WEBM saved');
-  };
-  recorder.start();
-  btn.classList.add('active');
-  btn.textContent = 'Stop ●';
-  toast('Recording…');
+  /* during 'encoding' the button shows progress and is non-interactive */
 });
 
 /* ---------- Boot ---------- */
