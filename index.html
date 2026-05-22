@@ -190,25 +190,28 @@
   }
 
   .colorRow{display:flex;gap:12px;align-items:stretch;}
-  /* left column holds the swatch (tap to reset) above a random-color button.
-     Stacks vertically inside a 44px column. */
-  .colorLeft{
-    display:flex;flex-direction:column;gap:6px;
-    width:44px;flex:0 0 44px;
+  /* right-hand column: swatch on top (tap to reset), bigger random button
+     below with explicit "RANDOM COLOR" label. Width matches the sliders so
+     both halves feel balanced. */
+  .colorRight{
+    display:flex;flex-direction:column;gap:8px;
+    width:130px;flex:0 0 130px;
   }
   .colorSwatch{
-    flex:1;min-height:0;border-radius:6px;border:1px solid var(--line);
+    flex:0 0 36px;height:36px;border-radius:6px;border:1px solid var(--line);
     background:#fff;cursor:pointer;transition:border-color .15s;
   }
   .colorSwatch:active{border-color:var(--hot);}
   .colorRandom{
     background:#000;color:var(--ink);border:1px solid var(--line);
     border-radius:6px;cursor:pointer;
-    height:28px;flex:0 0 28px;padding:0;
-    display:flex;align-items:center;justify-content:center;
+    flex:1 1 auto;min-height:0;
+    padding:8px 6px;
+    font:inherit;font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
     transition:border-color .15s,background .15s;
   }
-  .colorRandom svg{width:14px;height:14px;opacity:.85;}
+  .colorRandom svg{width:18px;height:18px;opacity:.85;}
   .colorRandom:active{background:rgba(255,77,46,.25);border-color:var(--hot);}
   .colorRandom.rolled{background:#3a1d11;border-color:#ff8a6a;}
   .colorSliders{flex:1;min-width:0;}
@@ -371,19 +374,6 @@
     </div>
 
     <div class="row colorRow">
-      <div class="colorLeft">
-        <div class="colorSwatch" id="colorSwatch" title="Reset to white"></div>
-        <button class="colorRandom" id="colorRandom" title="Random color" aria-label="Random color">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <rect x="3.5" y="3.5" width="17" height="17" rx="3" ry="3" stroke-linejoin="round"/>
-            <circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/>
-            <circle cx="16" cy="8" r="1.2" fill="currentColor" stroke="none"/>
-            <circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/>
-            <circle cx="8" cy="16" r="1.2" fill="currentColor" stroke="none"/>
-            <circle cx="16" cy="16" r="1.2" fill="currentColor" stroke="none"/>
-          </svg>
-        </button>
-      </div>
       <div class="sliders colorSliders">
         <div class="slider">
           <div class="head"><span class="rLabel">Red</span><b id="vColorR">255</b></div>
@@ -397,6 +387,20 @@
           <div class="head"><span class="bLabel">Blue</span><b id="vColorB">255</b></div>
           <input type="range" id="colorB" class="bSlider" min="0" max="255" step="1" value="255">
         </div>
+      </div>
+      <div class="colorRight">
+        <div class="colorSwatch" id="colorSwatch" title="Reset to white"></div>
+        <button class="colorRandom" id="colorRandom" title="Random color">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <rect x="3.5" y="3.5" width="17" height="17" rx="3" ry="3" stroke-linejoin="round"/>
+            <circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none"/>
+            <circle cx="16" cy="8" r="1.3" fill="currentColor" stroke="none"/>
+            <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/>
+            <circle cx="8" cy="16" r="1.3" fill="currentColor" stroke="none"/>
+            <circle cx="16" cy="16" r="1.3" fill="currentColor" stroke="none"/>
+          </svg>
+          <span>Random<br>Color</span>
+        </button>
       </div>
     </div>
   </div>
@@ -834,6 +838,54 @@ const off = document.createElement('canvas');
 const offCtx = off.getContext('2d');
 const texRegion = [1, 1];   // active sub-region of POT texture (w,h fractions)
 
+/* Font choices — each entry declares the family stack, available weights
+   (the ones we actually loaded from Google Fonts or that are present
+   locally), and a default weight that looks best at large refracted sizes.
+   The canvas-side fontFor() reads state.font + state.fontWeight to build
+   the final font shorthand. Module-scope so the font/weight dropdown setup
+   code below can read it too. */
+const FONTS = {
+  inter:        {label:'Inter',                family:'"Inter", "Helvetica Neue", Arial, sans-serif',           weights:[300,400,500,600,700,800,900], def:600},
+  helvetica:    {label:'Helvetica Neue',       family:'"Helvetica Neue", Helvetica, Arial, sans-serif',          weights:[300,400,500,700,900],         def:900},
+  spaceGrotesk: {label:'Space Grotesk',        family:'"Space Grotesk", "Helvetica Neue", Arial, sans-serif',    weights:[300,400,500,600,700],         def:700},
+  manrope:      {label:'Manrope',              family:'"Manrope", "Helvetica Neue", Arial, sans-serif',          weights:[200,300,400,500,600,700,800], def:800},
+  dmSans:       {label:'DM Sans',              family:'"DM Sans", "Helvetica Neue", Arial, sans-serif',          weights:[400,500,700],                 def:700},
+  jakarta:      {label:'Plus Jakarta Sans',    family:'"Plus Jakarta Sans", "Helvetica Neue", Arial, sans-serif',weights:[300,400,500,600,700,800],     def:800},
+  bricolage:    {label:'Bricolage Grotesque',  family:'"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif',weights:[400,500,600,700,800],       def:700},
+  familjen:     {label:'Familjen Grotesk',     family:'"Familjen Grotesk", "Helvetica Neue", Arial, sans-serif', weights:[400,500,600,700],             def:700},
+  syne:         {label:'Syne',                 family:'"Syne", "Helvetica Neue", Arial, sans-serif',             weights:[400,500,600,700,800],         def:800},
+  unbounded:    {label:'Unbounded',            family:'"Unbounded", "Helvetica Neue", Arial, sans-serif',        weights:[200,300,400,500,600,700,800,900],def:900},
+  archivoBlack: {label:'Archivo Black',        family:'"Archivo Black", "Helvetica Neue", Arial, sans-serif',    weights:[400],                         def:400},
+  anton:        {label:'Anton',                family:'"Anton", "Helvetica Neue", Arial, sans-serif',            weights:[400],                         def:400},
+  oswald:       {label:'Oswald',               family:'"Oswald", "Helvetica Neue", Arial, sans-serif',           weights:[200,300,400,500,600,700],     def:700},
+  bebas:        {label:'Bebas Neue',           family:'"Bebas Neue", "Helvetica Neue", Arial, sans-serif',       weights:[400],                         def:400},
+  bigShoulders: {label:'Big Shoulders',        family:'"Big Shoulders Display", "Helvetica Neue", Arial, sans-serif',weights:[900],                    def:900},
+  playfair:     {label:'Playfair Display',     family:'"Playfair Display", Georgia, serif',                      weights:[400,500,600,700,800,900],     def:900},
+  fraunces:     {label:'Fraunces',             family:'"Fraunces", Georgia, serif',                              weights:[100,200,300,400,500,600,700,800,900],def:900},
+  dmSerif:      {label:'DM Serif Display',     family:'"DM Serif Display", Georgia, serif',                      weights:[400],                         def:400},
+  abril:        {label:'Abril Fatface',        family:'"Abril Fatface", Georgia, serif',                         weights:[400],                         def:400},
+  crimson:      {label:'Crimson Pro',          family:'"Crimson Pro", Georgia, serif',                           weights:[200,300,400,500,600,700,800,900],def:900},
+  libreCaslon:  {label:'Libre Caslon Display', family:'"Libre Caslon Display", Georgia, serif',                  weights:[400],                         def:400},
+  jetbrains:    {label:'JetBrains Mono',       family:'"JetBrains Mono", ui-monospace, Menlo, monospace',        weights:[100,200,300,400,500,600,700,800],def:700},
+  spaceMono:    {label:'Space Mono',           family:'"Space Mono", ui-monospace, Menlo, monospace',            weights:[400,700],                     def:700},
+  ibmPlex:      {label:'IBM Plex Mono',        family:'"IBM Plex Mono", ui-monospace, Menlo, monospace',         weights:[100,200,300,400,500,600,700], def:700},
+  sfmono:       {label:'SF Mono',              family:'"SF Mono", ui-monospace, Menlo, monospace',               weights:[400,500,600,700],             def:700},
+  georgia:      {label:'Georgia',              family:'Georgia, "Times New Roman", serif',                       weights:[400,700],                     def:700},
+};
+/* Map weight numbers to human labels for the weight dropdown */
+const WEIGHT_LABELS = {
+  100:'Thin', 200:'ExtraLight', 300:'Light', 400:'Regular', 500:'Medium',
+  600:'SemiBold', 700:'Bold', 800:'ExtraBold', 900:'Black',
+};
+/* fontFor reads from state (declared below), so it can't run until state
+   exists — but renderText (which calls it) isn't invoked until boot. */
+const fontFor = s => {
+  const f = FONTS[state.font] || FONTS.inter;
+  /* fall back to the family's default if the current weight isn't valid for this font */
+  const w = f.weights.includes(state.fontWeight) ? state.fontWeight : f.def;
+  return `${w} ${s}px ${f.family}`;
+};
+
 function renderText(str){
   /* render text at a fixed POWER-OF-TWO resolution so we can generate
      mipmaps. The aspect of the visible canvas is handled by the shader's
@@ -867,51 +919,6 @@ function renderText(str){
   let lines = (str || '').split('\n');
   while(lines.length && lines[lines.length-1].trim() === '') lines.pop();
   if(!lines.length) lines = [' '];
-
-  /* Font choices — each entry declares the family stack, available weights
-     (the ones we actually loaded from Google Fonts or that are present
-     locally), and a default weight that looks best at large refracted sizes.
-     The canvas-side fontFor() reads state.font + state.fontWeight to build
-     the final font shorthand. */
-  const FONTS = {
-    inter:        {label:'Inter',                family:'"Inter", "Helvetica Neue", Arial, sans-serif',           weights:[300,400,500,600,700,800,900], def:600},
-    helvetica:    {label:'Helvetica Neue',       family:'"Helvetica Neue", Helvetica, Arial, sans-serif',          weights:[300,400,500,700,900],         def:900},
-    spaceGrotesk: {label:'Space Grotesk',        family:'"Space Grotesk", "Helvetica Neue", Arial, sans-serif',    weights:[300,400,500,600,700],         def:700},
-    manrope:      {label:'Manrope',              family:'"Manrope", "Helvetica Neue", Arial, sans-serif',          weights:[200,300,400,500,600,700,800], def:800},
-    dmSans:       {label:'DM Sans',              family:'"DM Sans", "Helvetica Neue", Arial, sans-serif',          weights:[400,500,700],                 def:700},
-    jakarta:      {label:'Plus Jakarta Sans',    family:'"Plus Jakarta Sans", "Helvetica Neue", Arial, sans-serif',weights:[300,400,500,600,700,800],     def:800},
-    bricolage:    {label:'Bricolage Grotesque',  family:'"Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif',weights:[400,500,600,700,800],       def:700},
-    familjen:     {label:'Familjen Grotesk',     family:'"Familjen Grotesk", "Helvetica Neue", Arial, sans-serif', weights:[400,500,600,700],             def:700},
-    syne:         {label:'Syne',                 family:'"Syne", "Helvetica Neue", Arial, sans-serif',             weights:[400,500,600,700,800],         def:800},
-    unbounded:    {label:'Unbounded',            family:'"Unbounded", "Helvetica Neue", Arial, sans-serif',        weights:[200,300,400,500,600,700,800,900],def:900},
-    archivoBlack: {label:'Archivo Black',        family:'"Archivo Black", "Helvetica Neue", Arial, sans-serif',    weights:[400],                         def:400},
-    anton:        {label:'Anton',                family:'"Anton", "Helvetica Neue", Arial, sans-serif',            weights:[400],                         def:400},
-    oswald:       {label:'Oswald',               family:'"Oswald", "Helvetica Neue", Arial, sans-serif',           weights:[200,300,400,500,600,700],     def:700},
-    bebas:        {label:'Bebas Neue',           family:'"Bebas Neue", "Helvetica Neue", Arial, sans-serif',       weights:[400],                         def:400},
-    bigShoulders: {label:'Big Shoulders',        family:'"Big Shoulders Display", "Helvetica Neue", Arial, sans-serif',weights:[900],                    def:900},
-    playfair:     {label:'Playfair Display',     family:'"Playfair Display", Georgia, serif',                      weights:[400,500,600,700,800,900],     def:900},
-    fraunces:     {label:'Fraunces',             family:'"Fraunces", Georgia, serif',                              weights:[100,200,300,400,500,600,700,800,900],def:900},
-    dmSerif:      {label:'DM Serif Display',     family:'"DM Serif Display", Georgia, serif',                      weights:[400],                         def:400},
-    abril:        {label:'Abril Fatface',        family:'"Abril Fatface", Georgia, serif',                         weights:[400],                         def:400},
-    crimson:      {label:'Crimson Pro',          family:'"Crimson Pro", Georgia, serif',                           weights:[200,300,400,500,600,700,800,900],def:900},
-    libreCaslon:  {label:'Libre Caslon Display', family:'"Libre Caslon Display", Georgia, serif',                  weights:[400],                         def:400},
-    jetbrains:    {label:'JetBrains Mono',       family:'"JetBrains Mono", ui-monospace, Menlo, monospace',        weights:[100,200,300,400,500,600,700,800],def:700},
-    spaceMono:    {label:'Space Mono',           family:'"Space Mono", ui-monospace, Menlo, monospace',            weights:[400,700],                     def:700},
-    ibmPlex:      {label:'IBM Plex Mono',        family:'"IBM Plex Mono", ui-monospace, Menlo, monospace',         weights:[100,200,300,400,500,600,700], def:700},
-    sfmono:       {label:'SF Mono',              family:'"SF Mono", ui-monospace, Menlo, monospace',               weights:[400,500,600,700],             def:700},
-    georgia:      {label:'Georgia',              family:'Georgia, "Times New Roman", serif',                       weights:[400,700],                     def:700},
-  };
-  /* Map weight numbers to human labels for the weight dropdown */
-  const WEIGHT_LABELS = {
-    100:'Thin', 200:'ExtraLight', 300:'Light', 400:'Regular', 500:'Medium',
-    600:'SemiBold', 700:'Bold', 800:'ExtraBold', 900:'Black',
-  };
-  const fontFor = s => {
-    const f = FONTS[state.font] || FONTS.inter;
-    /* fall back to the family's default if the current weight isn't valid for this font */
-    const w = f.weights.includes(state.fontWeight) ? state.fontWeight : f.def;
-    return `${w} ${s}px ${f.family}`;
-  };
 
   /* find the largest font size where every line fits horizontally AND the
      stacked block fits vertically. Vertical line spacing = 1.05 × fontSize. */
@@ -1210,9 +1217,12 @@ function randomColor(){
 $('colorRandom').addEventListener('click', e => {
   const [r, g, b] = randomColor();
   setColor(r, g, b);
-  /* brief flash like the random-geometry button does */
-  e.currentTarget.classList.add('rolled');
-  setTimeout(() => e.currentTarget.classList.remove('rolled'), 200);
+  /* brief flash like the random-geometry button does. Capture the element
+     in a local — e.currentTarget is nulled once the handler returns, so it
+     can't be used inside setTimeout. */
+  const btn = e.currentTarget;
+  btn.classList.add('rolled');
+  setTimeout(() => btn.classList.remove('rolled'), 200);
 });
 
 /* LOOK tab toggles */
